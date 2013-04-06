@@ -55,6 +55,10 @@ class AutoSlugField(SlugField):
         change`_ (and the slug is usually a part of object's URI). Note that
         even if the field is editable, any manual changes will be lost when
         this option is activated.
+    :param redirect_tracking: boolean: if True, upon slug change the get_absolute_url is
+        checked for the mode, if the slug change causes a URI change, a redirect is entered
+        using the django redirect contrib app. Remeber, `cool URIs don't
+        change` but `once cool URIs redirect`.
     :param populate_from: string or callable: if string is given, it is considered
         as the name of attribute from which to fill the slug. If callable is given,
         it should accept `instance` parameter and return a value to fill the slug
@@ -139,6 +143,9 @@ class AutoSlugField(SlugField):
         # (ex. usage: user profile models)
         slug = AutoSlugField(populate_from=lambda instance: instance.user.get_full_name())
 
+        # track redirects for a slug value which has changed for model instance
+        slug = AutoSlugField(unique=True, redirect_tracking=True)
+
         # specify model manager for looking up slugs shared by subclasses
 
         class Article(models.Model):
@@ -196,6 +203,7 @@ class AutoSlugField(SlugField):
         self.manager = kwargs.pop('manager', None)
 
         self.always_update = kwargs.pop('always_update', False)
+        self.redirect_tracking = kwargs.pop('redirect_tracking', False)
         super(SlugField, self).__init__(*args, **kwargs)
 
     def pre_save(self, instance, add):
@@ -229,8 +237,45 @@ class AutoSlugField(SlugField):
 
         assert slug, 'value is filled before saving'
 
+        # check if redirect tracking is on and if so prepare
+        if self.redirect_tracking:
+
+            # Can we import the needed django.contrib.redirects app
+            try:
+                from django.contrib.redirects.models import Redirect
+                from django.contrib.sites.models import Site
+
+            except ImportError:
+                raise Exception("You are using redirect_tracking. Please be sure to add django contrib apps Redirect and Site to your INSTALLED_APPS.")
+
+            # does model instance have get_absolute_url defined
+            try:
+                # capture current get_absolute_url
+                pre_update_absolute_url = instance.get_absolute_url()
+
+            except AttributeError:
+                raise Exception("You are using redirect_tracking on a field whose model does not have get_absolute_url defined. You must define this method on your model.")
+
         # make the updated slug available as instance attribute
         setattr(instance, self.name, slug)
+
+        # check if the slug update caused a change in get_absolute_url
+        # if so and redirect_tracking = True, record in the django contrib redirect app.
+        post_update_absolute_url = instance.get_absolute_url()
+
+        if self.redirect_tracking:
+
+            if pre_update_absolute_url != post_update_absolute_url:
+                # current site
+                site = Site.objects.get_current()
+
+                # add a redirect
+                redirect = Redirect(
+                    site=site,
+                    old_path=pre_update_absolute_url,
+                    new_path=post_update_absolute_url
+                )
+                redirect.save()
 
         return slug
 
