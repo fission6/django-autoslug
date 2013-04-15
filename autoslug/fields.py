@@ -238,7 +238,7 @@ class AutoSlugField(SlugField):
         assert slug, 'value is filled before saving'
 
         # check if redirect tracking is on and if so prepare
-        if self.redirect_tracking:
+        if not add and self.redirect_tracking:
 
             # Can we import the needed django.contrib.redirects app
             try:
@@ -259,11 +259,10 @@ class AutoSlugField(SlugField):
         # make the updated slug available as instance attribute
         setattr(instance, self.name, slug)
 
-        # check if the slug update caused a change in get_absolute_url
-        # if so and redirect_tracking = True, record in the django contrib redirect app.
-        post_update_absolute_url = instance.get_absolute_url()
-
-        if self.redirect_tracking:
+        if not add and self.redirect_tracking:
+            # check if the slug update caused a change in get_absolute_url
+            # if so and redirect_tracking = True, record in the django contrib redirect app.
+            post_update_absolute_url = instance.get_absolute_url()
 
             if pre_update_absolute_url != post_update_absolute_url:
                 # current site
